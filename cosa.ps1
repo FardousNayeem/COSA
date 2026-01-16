@@ -307,8 +307,10 @@ function Parse-Selection {
     throw "Invalid selection token: '$part'"
   }
 
-  return @($set.ToArray() | Sort-Object)
+  $arr = foreach ($v in $set) { [int]$v }
+  return @($arr | Sort-Object)
 }
+
 
 # ----------------------------
 # Display Helpers
