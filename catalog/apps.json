@@ -1,0 +1,9 @@
+[
+  { "id": 1, "name": "Mozilla Firefox", "wingetId": "Mozilla.Firefox", "category": "Browser", "recommended": true, "openSource": true },
+  { "id": 2, "name": "VLC media player", "wingetId": "VideoLAN.VLC", "category": "Media", "recommended": true, "openSource": true },
+  { "id": 3, "name": "7-Zip", "wingetId": "7zip.7zip", "category": "Utilities", "recommended": true, "openSource": true },
+  { "id": 4, "name": "Notepad++", "wingetId": "Notepad++.Notepad++", "category": "Utilities", "recommended": false, "openSource": true },
+  { "id": 5, "name": "GIMP", "wingetId": "GIMP.GIMP", "category": "Graphics", "recommended": false, "openSource": true },
+  { "id": 6, "name": "Blender", "wingetId": "BlenderFoundation.Blender", "category": "Graphics", "recommended": false, "openSource": true },
+  { "id": 7, "name": "KeePassXC", "wingetId": "KeePassXCTeam.KeePassXC", "category": "Security", "recommended": true, "openSource": true }
+]
