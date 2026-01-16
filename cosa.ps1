@@ -409,7 +409,8 @@ $BundleDev = @(
   "Python.Python.3",
   "EclipseAdoptium.Temurin.17.JDK",
   "OpenJS.NodeJS",
-  "Git.Git"
+  "Git.Git",
+  "MSYS2.MSYS2"
 )
 
 function Install-Bundle($catalog, $state, [string]$bundleName, [string[]]$wingetIds) {

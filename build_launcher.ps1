@@ -25,7 +25,8 @@ class Program
 
             var psi = new ProcessStartInfo();
             psi.FileName = "powershell.exe";
-            psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + ps1 + "\"";
+            var extra = args != null && args.Length > 0 ? " " + string.Join(" ", args) : "";
+            psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + ps1 + "\"" + extra;
             psi.UseShellExecute = false;
             psi.CreateNoWindow = false; // show console window
             psi.WorkingDirectory = root;
