@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------
 # Paths + App Info
 # ----------------------------
-$CosaVersion = "0.3.1"
+$CosaVersion = "0.3.2"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $CatalogPath = Join-Path $Root "catalog\apps.json"
@@ -34,6 +34,20 @@ function Write-Log {
 }
 
 # ----------------------------
+# Defensive helpers
+# ----------------------------
+function As-Array {
+  param([Parameter(ValueFromPipeline=$true)]$Value)
+  if ($null -eq $Value) { return @() }
+  return @($Value)
+}
+
+function Safe-Count($Value) {
+  $arr = As-Array $Value
+  return $arr.Count
+}
+
+# ----------------------------
 # JSON Helpers
 # ----------------------------
 function Read-JsonFile {
@@ -53,7 +67,7 @@ function Write-JsonFile {
 }
 
 # ----------------------------
-# Catalog + State
+# Catalog + State (normalized)
 # ----------------------------
 function Load-Catalog {
   if (!(Test-Path $CatalogPath)) {
@@ -61,7 +75,17 @@ function Load-Catalog {
   }
   $catalog = Read-JsonFile -Path $CatalogPath
   if ($null -eq $catalog) { throw "Catalog is empty or invalid JSON: $CatalogPath" }
-  return @($catalog) # ensure array
+  return (As-Array $catalog)
+}
+
+function Normalize-State($state) {
+  if ($null -eq $state) { return $null }
+
+  # Ensure managedApps is always an array
+  if ($null -eq $state.managedApps) { $state.managedApps = @() }
+  else { $state.managedApps = As-Array $state.managedApps }
+
+  return $state
 }
 
 function Ensure-State {
@@ -75,18 +99,20 @@ function Ensure-State {
     }
     Write-JsonFile -Path $StatePath -Object $state
   }
-  return $state
+  return (Normalize-State $state)
 }
 
 function Save-State($state) {
   $state.lastRunAt = (Get-Date).ToString("o")
   $state.cosaVersion = $CosaVersion
+  $state = Normalize-State $state
   Write-JsonFile -Path $StatePath -Object $state
 }
 
 function Get-ManagedIndexById($state, [string]$wingetId) {
-  for ($i=0; $i -lt $state.managedApps.Count; $i++) {
-    if ($state.managedApps[$i].wingetId -eq $wingetId) { return $i }
+  $apps = As-Array $state.managedApps
+  for ($i=0; $i -lt $apps.Count; $i++) {
+    if ($apps[$i].wingetId -eq $wingetId) { return $i }
   }
   return -1
 }
@@ -153,7 +179,7 @@ function Install-UiXamlFramework {
     throw "Failed to retrieve Microsoft.UI.Xaml versions from NuGet."
   }
 
-  $versions = @($idx.versions | Where-Object { $_ -match "^2\.8\." } | Sort-Object { [version]$_ } -Descending)
+  $versions = As-Array ($idx.versions | Where-Object { $_ -match "^2\.8\." } | Sort-Object { [version]$_ } -Descending)
   if ($versions.Count -eq 0) { throw "No Microsoft.UI.Xaml 2.8.x versions found on NuGet." }
 
   $ver = $versions[0]
@@ -311,7 +337,6 @@ function Parse-Selection {
   return @($arr | Sort-Object)
 }
 
-
 # ----------------------------
 # Display Helpers
 # ----------------------------
@@ -327,6 +352,7 @@ function Confirm($prompt) {
 }
 
 function Show-Apps($apps) {
+  $apps = As-Array $apps
   Write-Host ""
   Write-Host ("{0,-4} {1,-30} {2,-14} {3}" -f "ID","Name","Category","WingetId")
   Write-Host ("{0,-4} {1,-30} {2,-14} {3}" -f "--","----","--------","-------")
@@ -337,6 +363,7 @@ function Show-Apps($apps) {
 }
 
 function Name-ForWingetId($catalog, [string]$wingetId) {
+  $catalog = As-Array $catalog
   $match = $catalog | Where-Object { $_.wingetId -eq $wingetId } | Select-Object -First 1
   if ($null -ne $match) { return $match.name }
   return $wingetId
@@ -346,9 +373,11 @@ function Name-ForWingetId($catalog, [string]$wingetId) {
 # State / Managed
 # ----------------------------
 function Ensure-Managed($state, [string]$wingetId) {
+  $state = Normalize-State $state
   $idx = Get-ManagedIndexById $state $wingetId
   if ($idx -ge 0) { return }
 
+  $state.managedApps = As-Array $state.managedApps
   $state.managedApps += [pscustomobject]@{
     wingetId        = $wingetId
     pinned          = $false
@@ -377,7 +406,7 @@ function Install-WingetId($state, [string]$wingetId, [string]$displayName) {
     Write-Log "SUCCESS: $wingetId"
     Ensure-Managed $state $wingetId
     $idx = Get-ManagedIndexById $state $wingetId
-    if ($idx -ge 0) { $state.managedApps[$idx].lastStatus = "installed" }
+    if ($idx -ge 0) { (As-Array $state.managedApps)[$idx].lastStatus = "installed" }
     return $true
   }
 
@@ -435,14 +464,16 @@ function Install-Bundle($catalog, $state, [string]$bundleName, [string[]]$winget
 }
 
 # ----------------------------
-# All Apps Install
+# Browse All Apps Install
 # ----------------------------
 function Install-From-AllApps($catalog, $state) {
+  $catalog = As-Array $catalog
   Show-Apps $catalog
+
   $selText = Read-Host "Enter app IDs to install (e.g. 1,3,7-10) or 0 to go back"
   if ($selText.Trim() -eq "0") { Write-Log "Back to menu."; return }
 
-  $ids = Parse-Selection $selText
+  $ids = As-Array (Parse-Selection $selText)
   if ($ids.Count -eq 0) { Write-Log "No selection."; return }
 
   $selected = @()
@@ -451,6 +482,7 @@ function Install-From-AllApps($catalog, $state) {
     if ($null -eq $match) { Write-Log "Unknown ID: $id" "WARN"; continue }
     $selected += $match
   }
+  $selected = As-Array $selected
 
   if ($selected.Count -eq 0) { Write-Log "Nothing valid selected."; return }
 
@@ -471,8 +503,9 @@ function Install-From-AllApps($catalog, $state) {
 # ----------------------------
 function Get-ManagedUpdateCandidates($state) {
   Require-Winget
+  $state = Normalize-State $state
 
-  $managed = @($state.managedApps)
+  $managed = As-Array $state.managedApps
   if ($managed.Count -eq 0) { return @() }
 
   $needUpdate = @()
@@ -492,20 +525,22 @@ function Get-ManagedUpdateCandidates($state) {
     }
   }
 
-  return $needUpdate
+  return (As-Array $needUpdate)
 }
 
 function Update-ManagedFlow($catalog, $state) {
   Require-Winget
+  $state = Normalize-State $state
+  $catalog = As-Array $catalog
 
-  $managed = @($state.managedApps)
+  $managed = As-Array $state.managedApps
   if ($managed.Count -eq 0) {
     Write-Log "No managed apps yet."
     return
   }
 
   Write-Log "Checking updates for managed apps only..."
-  $candidates = Get-ManagedUpdateCandidates $state
+  $candidates = As-Array (Get-ManagedUpdateCandidates $state)
 
   if ($candidates.Count -eq 0) {
     Write-Log "No updates available for managed apps."
@@ -539,17 +574,19 @@ function Update-ManagedFlow($catalog, $state) {
 
     if ($res.ExitCode -eq 0) {
       Write-Log "OK: $id"
-      if ($idx -ge 0) { $state.managedApps[$idx].lastStatus = "upgraded_or_ok" }
+      if ($idx -ge 0) { (As-Array $state.managedApps)[$idx].lastStatus = "upgraded_or_ok" }
     } else {
       Write-Log "FAIL upgrade: $id exit=$($res.ExitCode)" "ERROR"
       if ($res.StdErr) { Write-Log ("winget stderr: " + $res.StdErr.Trim()) "ERROR" }
-      if ($idx -ge 0) { $state.managedApps[$idx].lastStatus = "upgrade_failed" }
+      if ($idx -ge 0) { (As-Array $state.managedApps)[$idx].lastStatus = "upgrade_failed" }
     }
   }
 }
 
 function Show-Managed($state) {
-  $managed = @($state.managedApps)
+  $state = Normalize-State $state
+  $managed = As-Array $state.managedApps
+
   if ($managed.Count -eq 0) {
     Write-Log "No managed apps yet."
     return
@@ -580,7 +617,7 @@ try {
     Write-Host "0) Refresh / Home"
     Write-Host "1) Basics bundle (Recommended)"
     Write-Host "2) Development bundle"
-    Write-Host "3) Install from All Apps"
+    Write-Host "3) Browse Apps"
     Write-Host "4) Update Managed Apps"
     Write-Host "5) Show Managed Apps"
     Write-Host "6) Exit"
