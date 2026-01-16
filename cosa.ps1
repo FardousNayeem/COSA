@@ -1,5 +1,4 @@
 # COSA - Curated Open Source Apps
-# PowerShell MVP (Phase 1) + WinGet Bootstrap
 # Run: powershell -ExecutionPolicy Bypass -File .\cosa.ps1
 
 Set-StrictMode -Version Latest
@@ -8,7 +7,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------
 # Paths + App Info
 # ----------------------------
-$CosaVersion = "0.2.0"
+$CosaVersion = "0.3.0"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $CatalogPath = Join-Path $Root "catalog\apps.json"
@@ -96,9 +95,7 @@ function Get-ManagedIndexById($state, [string]$wingetId) {
 # Networking / Download Helpers
 # ----------------------------
 function Ensure-Tls12 {
-  try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  } catch {}
+  try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 }
 
 function Download-File {
@@ -127,7 +124,6 @@ function Try-AddAppxPackage {
 }
 
 function Get-ArchTag {
-  # returns: x64 / x86 / arm64
   $arch = $env:PROCESSOR_ARCHITECTURE
   if ($arch -eq "ARM64") { return "arm64" }
   if ($arch -eq "AMD64") { return "x64" }
@@ -148,7 +144,6 @@ function Install-UiXamlFramework {
     [Parameter(Mandatory=$true)][string]$ArchTag
   )
 
-  # NuGet flat container: get versions list and pick the latest 2.8.x
   $indexUrl = "https://api.nuget.org/v3-flatcontainer/microsoft.ui.xaml/index.json"
   Ensure-Tls12
   Write-Log "Fetching WinUI (Microsoft.UI.Xaml) versions from NuGet..."
@@ -159,9 +154,7 @@ function Install-UiXamlFramework {
   }
 
   $versions = @($idx.versions | Where-Object { $_ -match "^2\.8\." } | Sort-Object { [version]$_ } -Descending)
-  if ($versions.Count -eq 0) {
-    throw "No Microsoft.UI.Xaml 2.8.x versions found on NuGet."
-  }
+  if ($versions.Count -eq 0) { throw "No Microsoft.UI.Xaml 2.8.x versions found on NuGet." }
 
   $ver = $versions[0]
   Write-Log "Selected Microsoft.UI.Xaml version: $ver"
@@ -176,18 +169,12 @@ function Install-UiXamlFramework {
   if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
   Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
 
-  # AppX typically found in: tools\AppX\<arch>\Release\*.appx
   $appxDir = Join-Path $extractDir ("tools\AppX\{0}\Release" -f $ArchTag)
-  if (!(Test-Path $appxDir)) {
-    throw "Could not locate WinUI AppX directory: $appxDir"
-  }
+  if (!(Test-Path $appxDir)) { throw "Could not locate WinUI AppX directory: $appxDir" }
 
   $appx = Get-ChildItem -Path $appxDir -Filter "*.appx" | Select-Object -First 1
-  if ($null -eq $appx) {
-    throw "No .appx found in: $appxDir"
-  }
+  if ($null -eq $appx) { throw "No .appx found in: $appxDir" }
 
-  # best-effort install (may already exist)
   [void](Try-AddAppxPackage -Path $appx.FullName)
 }
 
@@ -197,9 +184,8 @@ function Install-VCLibsFramework {
     [Parameter(Mandatory=$true)][string]$ArchTag
   )
 
-  # aka.ms links exist for x64/arm64 (x86 is less common; try a best-effort)
   $url = $null
-  if ($ArchTag -eq "x64")   { $url = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx" }
+  if ($ArchTag -eq "x64") { $url = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx" }
   elseif ($ArchTag -eq "arm64") { $url = "https://aka.ms/Microsoft.VCLibs.arm64.14.00.Desktop.appx" }
   else { $url = "https://aka.ms/Microsoft.VCLibs.x86.14.00.Desktop.appx" }
 
@@ -211,7 +197,6 @@ function Install-VCLibsFramework {
 function Install-WinGetAppInstaller {
   param([Parameter(Mandatory=$true)][string]$TempDir)
 
-  # This downloads the App Installer / DesktopAppInstaller MSIXBundle (includes winget)
   $url = "https://aka.ms/getwinget"
   $out = Join-Path $TempDir "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
   Download-File -Url $url -OutFile $out
@@ -234,11 +219,8 @@ function Bootstrap-Winget {
   Write-Log "Bootstrap temp directory: $tempDir"
 
   try {
-    # Install dependencies first (best-effort)
     Install-VCLibsFramework -TempDir $tempDir -ArchTag $arch
     Install-UiXamlFramework -TempDir $tempDir -ArchTag $arch
-
-    # Then install App Installer / WinGet
     Install-WinGetAppInstaller -TempDir $tempDir
 
     Start-Sleep -Seconds 2
@@ -257,8 +239,6 @@ function Bootstrap-Winget {
     return $false
   }
   finally {
-    # Keep temp dir for debugging if something fails; comment in to auto-clean:
-    # Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
     Write-Log "Bootstrap temp files kept at: $tempDir"
   }
 }
@@ -270,8 +250,7 @@ function Require-Winget {
   if ($ok -and (Test-Winget)) { return }
 
   Write-Log "winget is required but could not be installed automatically on this system." "ERROR"
-  Write-Log "Common causes: Microsoft Store/AppX install disabled by policy, missing services, or restricted environment." "ERROR"
-  Write-Log "You can try running Windows PowerShell 5.1 as Administrator and re-run COSA." "ERROR"
+  Write-Log "Try Windows PowerShell 5.1 as Administrator, or ensure AppX/Store installs are permitted." "ERROR"
   throw "winget is required but not installed."
 }
 
@@ -334,23 +313,29 @@ function Parse-Selection {
 # ----------------------------
 # Display Helpers
 # ----------------------------
-function Show-Apps($apps) {
-  Write-Host ""
-  Write-Host ("{0,-4} {1,-28} {2,-14} {3}" -f "ID","Name","Category","WingetId")
-  Write-Host ("{0,-4} {1,-28} {2,-14} {3}" -f "--","----","--------","-------")
-  foreach ($a in $apps) {
-    Write-Host ("{0,-4} {1,-28} {2,-14} {3}" -f $a.id, $a.name, $a.category, $a.wingetId)
-  }
-  Write-Host ""
-}
-
 function Confirm($prompt) {
   $ans = Read-Host "$prompt (Y/N)"
   return ($ans.Trim().ToUpper() -eq "Y")
 }
 
+function Show-Apps($apps) {
+  Write-Host ""
+  Write-Host ("{0,-4} {1,-30} {2,-14} {3}" -f "ID","Name","Category","WingetId")
+  Write-Host ("{0,-4} {1,-30} {2,-14} {3}" -f "--","----","--------","-------")
+  foreach ($a in $apps) {
+    Write-Host ("{0,-4} {1,-30} {2,-14} {3}" -f $a.id, $a.name, $a.category, $a.wingetId)
+  }
+  Write-Host ""
+}
+
+function Name-ForWingetId($catalog, [string]$wingetId) {
+  $match = $catalog | Where-Object { $_.wingetId -eq $wingetId } | Select-Object -First 1
+  if ($null -ne $match) { return $match.name }
+  return $wingetId
+}
+
 # ----------------------------
-# Core Actions
+# State / Managed
 # ----------------------------
 function Ensure-Managed($state, [string]$wingetId) {
   $idx = Get-ManagedIndexById $state $wingetId
@@ -364,33 +349,146 @@ function Ensure-Managed($state, [string]$wingetId) {
   }
 }
 
-function Install-App($state, $app) {
+# ----------------------------
+# Install Actions
+# ----------------------------
+function Install-WingetId($state, [string]$wingetId, [string]$displayName) {
   Require-Winget
 
-  Write-Log "Installing: $($app.name) ($($app.wingetId))"
+  Write-Log "Installing: $displayName ($wingetId)"
   $res = Invoke-Winget @(
     "install",
-    "--id", "`"$($app.wingetId)`"",
+    "--id", "`"$wingetId`"",
+    "-e",
     "--silent",
     "--accept-package-agreements",
     "--accept-source-agreements"
   )
 
   if ($res.ExitCode -eq 0) {
-    Write-Log "SUCCESS: $($app.wingetId)"
-    Ensure-Managed $state $app.wingetId
-    $idx = Get-ManagedIndexById $state $app.wingetId
+    Write-Log "SUCCESS: $wingetId"
+    Ensure-Managed $state $wingetId
+    $idx = Get-ManagedIndexById $state $wingetId
     if ($idx -ge 0) { $state.managedApps[$idx].lastStatus = "installed" }
-  } else {
-    Write-Log "FAIL: $($app.wingetId) exit=$($res.ExitCode)" "ERROR"
-    if ($res.StdErr) { Write-Log ("winget stderr: " + $res.StdErr.Trim()) "ERROR" }
-    if ($res.StdOut) { Write-Log ("winget stdout: " + $res.StdOut.Trim()) "WARN" }
-    $idx = Get-ManagedIndexById $state $app.wingetId
-    if ($idx -ge 0) { $state.managedApps[$idx].lastStatus = "install_failed" }
+    return $true
+  }
+
+  Write-Log "FAIL: $wingetId exit=$($res.ExitCode)" "ERROR"
+  if ($res.StdErr) { Write-Log ("winget stderr: " + $res.StdErr.Trim()) "ERROR" }
+  if ($res.StdOut) { Write-Log ("winget stdout: " + $res.StdOut.Trim()) "WARN" }
+  return $false
+}
+
+function Install-App($state, $app) {
+  return (Install-WingetId $state $app.wingetId $app.name)
+}
+
+# ----------------------------
+# Bundles
+# ----------------------------
+$BundleBasics = @(
+  "PeaZip.PeaZip",
+  "VideoLAN.VLC",
+  "Notepad++.Notepad++",
+  "DuongDieuPhap.ImageGlass",
+  "GIMP.GIMP",
+  "TheDocumentFoundation.LibreOffice",
+  "KDE.Okular",
+  "qBittorrent.qBittorrent"
+)
+
+$BundleDev = @(
+  "VSCodium.VSCodium",
+  "GitHub.GitHubDesktop",
+  "Python.Python.3",
+  "EclipseAdoptium.Temurin.17.JDK",
+  "OpenJS.NodeJS",
+  "Git.Git"
+)
+
+function Install-Bundle($catalog, $state, [string]$bundleName, [string[]]$wingetIds) {
+  Write-Host ""
+  Write-Host "Bundle: $bundleName"
+  Write-Host "Apps to install:"
+  foreach ($id in $wingetIds) {
+    Write-Host (" - " + (Name-ForWingetId $catalog $id) + " [$id]")
+  }
+  Write-Host ""
+
+  if (-not (Confirm "Install bundle '$bundleName' ($($wingetIds.Count) apps)?")) {
+    Write-Log "Cancelled by user."
+    return
+  }
+
+  foreach ($id in $wingetIds) {
+    $name = Name-ForWingetId $catalog $id
+    [void](Install-WingetId $state $id $name)
   }
 }
 
-function Check-ManagedUpdates($state) {
+# ----------------------------
+# All Apps Install
+# ----------------------------
+function Install-From-AllApps($catalog, $state) {
+  Show-Apps $catalog
+  $selText = Read-Host "Enter app IDs to install (e.g. 1,3,7-10)"
+  $ids = Parse-Selection $selText
+
+  if ($ids.Count -eq 0) { Write-Log "No selection."; return }
+
+  $selected = @()
+  foreach ($id in $ids) {
+    $match = $catalog | Where-Object { $_.id -eq $id } | Select-Object -First 1
+    if ($null -eq $match) { Write-Log "Unknown ID: $id" "WARN"; continue }
+    $selected += $match
+  }
+
+  if ($selected.Count -eq 0) { Write-Log "Nothing valid selected."; return }
+
+  Write-Host ""
+  Write-Host "Selected:"
+  foreach ($a in $selected) { Write-Host " - $($a.id): $($a.name) [$($a.wingetId)]" }
+  Write-Host ""
+
+  if (-not (Confirm "Install $($selected.Count) app(s)?")) {
+    Write-Log "Cancelled by user."
+    return
+  }
+
+  foreach ($app in $selected) { [void](Install-App $state $app) }
+}
+
+# ----------------------------
+# Managed-only Updates
+# ----------------------------
+function Get-ManagedUpdateCandidates($state) {
+  Require-Winget
+
+  $managed = @($state.managedApps)
+  if ($managed.Count -eq 0) { return @() }
+
+  $needUpdate = @()
+
+  foreach ($m in $managed) {
+    if ($m.pinned -eq $true) { continue }
+
+    $res = Invoke-Winget @("upgrade", "--id", "`"$($m.wingetId)`"", "-e")
+    $out = ($res.StdOut + "`n" + $res.StdErr)
+
+    if ($out -match "No applicable update found" -or $out -match "No installed package found") {
+      continue
+    }
+
+    # If winget returns non-empty and doesn't say "no update", treat as candidate
+    if (-not [string]::IsNullOrWhiteSpace($out)) {
+      $needUpdate += $m.wingetId
+    }
+  }
+
+  return $needUpdate
+}
+
+function Update-ManagedFlow($catalog, $state) {
   Require-Winget
 
   $managed = @($state.managedApps)
@@ -400,62 +498,46 @@ function Check-ManagedUpdates($state) {
   }
 
   Write-Log "Checking updates for managed apps only..."
-  $updates = @()
+  $candidates = Get-ManagedUpdateCandidates $state
 
-  foreach ($m in $managed) {
-    if ($m.pinned -eq $true) { continue }
-
-    $res = Invoke-Winget @("upgrade", "--id", "`"$($m.wingetId)`"")
-    $out = ($res.StdOut + "`n" + $res.StdErr)
-
-    if ($out -match "No applicable update found" -or $out -match "No installed package found") {
-      continue
-    }
-
-    if ($res.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($out)) {
-      $updates += $m.wingetId
-    }
-  }
-
-  if ($updates.Count -eq 0) {
-    Write-Log "No updates detected for managed apps."
-  } else {
-    Write-Log ("Updates available for: " + ($updates -join ", ")) "WARN"
-  }
-}
-
-function Update-ManagedApps($state) {
-  Require-Winget
-
-  $managed = @($state.managedApps)
-  if ($managed.Count -eq 0) {
-    Write-Log "No managed apps yet."
+  if ($candidates.Count -eq 0) {
+    Write-Log "No updates available for managed apps."
     return
   }
 
-  Write-Log "Updating managed apps only (skipping pinned)..."
-  foreach ($m in $managed) {
-    if ($m.pinned -eq $true) {
-      Write-Log "SKIP pinned: $($m.wingetId)" "WARN"
-      continue
-    }
+  Write-Host ""
+  Write-Host "Updates available for:"
+  foreach ($id in $candidates) {
+    Write-Host (" - " + (Name-ForWingetId $catalog $id) + " [$id]")
+  }
+  Write-Host ""
 
-    Write-Log "Upgrading: $($m.wingetId)"
+  if (-not (Confirm "Update these $($candidates.Count) app(s) now?")) {
+    Write-Log "User chose not to update right now."
+    return
+  }
+
+  Write-Log "Updating managed apps (fetching + installing)..."
+  foreach ($id in $candidates) {
+    Write-Log "Upgrading: $id"
     $res = Invoke-Winget @(
       "upgrade",
-      "--id", "`"$($m.wingetId)`"",
+      "--id", "`"$id`"",
+      "-e",
       "--silent",
       "--accept-package-agreements",
       "--accept-source-agreements"
     )
 
+    $idx = Get-ManagedIndexById $state $id
+
     if ($res.ExitCode -eq 0) {
-      Write-Log "OK: $($m.wingetId)"
-      $m.lastStatus = "upgraded_or_ok"
+      Write-Log "OK: $id"
+      if ($idx -ge 0) { $state.managedApps[$idx].lastStatus = "upgraded_or_ok" }
     } else {
-      Write-Log "FAIL upgrade: $($m.wingetId) exit=$($res.ExitCode)" "ERROR"
+      Write-Log "FAIL upgrade: $id exit=$($res.ExitCode)" "ERROR"
       if ($res.StdErr) { Write-Log ("winget stderr: " + $res.StdErr.Trim()) "ERROR" }
-      $m.lastStatus = "upgrade_failed"
+      if ($idx -ge 0) { $state.managedApps[$idx].lastStatus = "upgrade_failed" }
     }
   }
 }
@@ -477,65 +559,7 @@ function Show-Managed($state) {
 }
 
 # ----------------------------
-# Menu Actions
-# ----------------------------
-function Install-Recommended($catalog, $state) {
-  $recommended = @($catalog | Where-Object { $_.recommended -eq $true })
-  if ($recommended.Count -eq 0) {
-    Write-Log "No recommended apps in catalog." "WARN"
-    return
-  }
-
-  Show-Apps $recommended
-  if (-not (Confirm "Install ALL recommended apps ($($recommended.Count))?")) {
-    Write-Log "Cancelled by user."
-    return
-  }
-
-  foreach ($app in $recommended) {
-    Install-App $state $app
-  }
-}
-
-function Install-From-AllApps($catalog, $state) {
-  Show-Apps $catalog
-  $selText = Read-Host "Enter app IDs to install (e.g. 1,3,7-10)"
-  $ids = Parse-Selection $selText
-
-  if ($ids.Count -eq 0) {
-    Write-Log "No selection."
-    return
-  }
-
-  $selected = @()
-  foreach ($id in $ids) {
-    $match = $catalog | Where-Object { $_.id -eq $id }
-    if ($null -eq $match) { Write-Log "Unknown ID: $id" "WARN"; continue }
-    $selected += $match
-  }
-
-  if ($selected.Count -eq 0) {
-    Write-Log "Nothing valid selected."
-    return
-  }
-
-  Write-Host ""
-  Write-Host "Selected:"
-  foreach ($a in $selected) { Write-Host " - $($a.id): $($a.name) [$($a.wingetId)]" }
-  Write-Host ""
-
-  if (-not (Confirm "Install $($selected.Count) app(s)?")) {
-    Write-Log "Cancelled by user."
-    return
-  }
-
-  foreach ($app in $selected) {
-    Install-App $state $app
-  }
-}
-
-# ----------------------------
-# Main Loop
+# Homepage
 # ----------------------------
 try {
   Write-Log "COSA v$CosaVersion starting..."
@@ -547,21 +571,21 @@ try {
   while ($true) {
     Write-Host ""
     Write-Host "=== COSA (Curated Open Source Apps) v$CosaVersion ==="
-    Write-Host "1) Install Recommended bundle"
-    Write-Host "2) Install from All Apps"
-    Write-Host "3) Check updates (Managed only)"
-    Write-Host "4) Update managed apps now"
-    Write-Host "5) Show managed apps"
+    Write-Host "1) Basics bundle (Recommended)"
+    Write-Host "2) Development bundle"
+    Write-Host "3) Install from All Apps"
+    Write-Host "4) Update Managed Apps"
+    Write-Host "5) Show Managed Apps"
     Write-Host "6) Exit"
     Write-Host ""
 
     $choice = Read-Host "Select an option"
 
     switch ($choice.Trim()) {
-      "1" { Install-Recommended $catalog $state; Save-State $state }
-      "2" { Install-From-AllApps $catalog $state; Save-State $state }
-      "3" { Check-ManagedUpdates $state; Save-State $state }
-      "4" { Update-ManagedApps $state; Save-State $state }
+      "1" { Install-Bundle $catalog $state "Recommended Apps" $BundleBasics; Save-State $state }
+      "2" { Install-Bundle $catalog $state "Development Apps" $BundleDev; Save-State $state }
+      "3" { Install-From-AllApps $catalog $state; Save-State $state }
+      "4" { Update-ManagedFlow $catalog $state; Save-State $state }
       "5" { Show-Managed $state }
       "6" { break }
       default { Write-Log "Invalid option: $choice" "WARN" }
