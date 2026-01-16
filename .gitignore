@@ -1,0 +1,34 @@
+# Built binaries
+*.exe
+
+# Logs (runtime output)
+logs/
+logs/**
+
+# Runtime state (optional but recommended)
+data/state.json
+
+# Temporary / editor files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# PowerShell history
+ConsoleHost_history.txt
+
+# VS / VS Code
+.vscode/
+.vs/
+
+# Node / Flutter (future UI)
+node_modules/
+build/
+dist/
+
+# OS / misc
+*.pid
+*.cache
