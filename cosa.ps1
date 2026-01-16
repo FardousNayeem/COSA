@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------
 # Paths + App Info
 # ----------------------------
-$CosaVersion = "0.3.4"
+$CosaVersion = "0.3.5"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $CatalogPath = Join-Path $Root "catalog\apps.json"
@@ -41,11 +41,6 @@ function As-Array {
   # IMPORTANT: the leading comma makes the array non-enumerating in the pipeline
   if ($null -eq $Value) { return ,@() }
   return ,@($Value)
-}
-
-function Safe-Count($Value) {
-  $arr = As-Array $Value
-  return $arr.Count
 }
 
 # ----------------------------
@@ -282,9 +277,15 @@ function Require-Winget {
 }
 
 # ----------------------------
-# WinGet runner
+# WinGet runner + verification
 # ----------------------------
 function Invoke-Winget([string[]]$args) {
+  Require-Winget
+
+  # Log the exact command we are about to run (helps debugging a ton)
+  $cmdLine = "winget " + ($args -join " ")
+  Write-Log "RUN: $cmdLine"
+
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = "winget"
   $psi.RedirectStandardOutput = $true
@@ -305,6 +306,13 @@ function Invoke-Winget([string[]]$args) {
     StdOut   = $stdout
     StdErr   = $stderr
   }
+}
+
+function Winget-List-HasId([string]$wingetId) {
+  # Prefer winget community source for verification (avoid msstore prompts)
+  $res = Invoke-Winget @("list","--id",$wingetId,"-e","--source","winget")
+  $out = ($res.StdOut + "`n" + $res.StdErr)
+  return ($out -notmatch "No installed package found matching input criteria")
 }
 
 # ----------------------------
@@ -387,8 +395,14 @@ function Ensure-Managed($state, [string]$wingetId) {
   }
 }
 
+function Remove-Managed($state, [string]$wingetId) {
+  $state = Normalize-State $state
+  $apps = As-Array $state.managedApps
+  $state.managedApps = @($apps | Where-Object { $_.wingetId -ne $wingetId })
+}
+
 # ----------------------------
-# Install Actions
+# Install / Uninstall Actions
 # ----------------------------
 function Install-WingetId($state, [string]$wingetId, [string]$displayName) {
   Require-Winget
@@ -396,7 +410,7 @@ function Install-WingetId($state, [string]$wingetId, [string]$displayName) {
   Write-Log "Installing: $displayName ($wingetId)"
   $res = Invoke-Winget @(
     "install",
-    "--id", "`"$wingetId`"",
+    "--id", $wingetId,
     "-e",
     "--silent",
     "--accept-package-agreements",
@@ -408,10 +422,44 @@ function Install-WingetId($state, [string]$wingetId, [string]$displayName) {
     Ensure-Managed $state $wingetId
     $idx = Get-ManagedIndexById $state $wingetId
     if ($idx -ge 0) { (As-Array $state.managedApps)[$idx].lastStatus = "installed" }
+
+    # Verify installation
+    if (Winget-List-HasId $wingetId) {
+      Write-Log "Verified installed via winget list: $wingetId"
+    } else {
+      Write-Log "winget returned success but app not detected by winget list: $wingetId" "WARN"
+      Write-Log "It may still be installed (portable/non-registered). Check Start Menu or install folders." "WARN"
+    }
+
     return $true
   }
 
   Write-Log "FAIL: $wingetId exit=$($res.ExitCode)" "ERROR"
+  if ($res.StdErr) { Write-Log ("winget stderr: " + $res.StdErr.Trim()) "ERROR" }
+  if ($res.StdOut) { Write-Log ("winget stdout: " + $res.StdOut.Trim()) "WARN" }
+  return $false
+}
+
+function Uninstall-WingetId($state, [string]$wingetId, [string]$displayName) {
+  Require-Winget
+
+  Write-Log "Uninstalling: $displayName ($wingetId)"
+  $res = Invoke-Winget @(
+    "uninstall",
+    "--id", $wingetId,
+    "-e",
+    "--silent",
+    "--accept-package-agreements",
+    "--accept-source-agreements"
+  )
+
+  if ($res.ExitCode -eq 0) {
+    Write-Log "UNINSTALLED: $wingetId"
+    Remove-Managed $state $wingetId
+    return $true
+  }
+
+  Write-Log "FAIL uninstall: $wingetId exit=$($res.ExitCode)" "ERROR"
   if ($res.StdErr) { Write-Log ("winget stderr: " + $res.StdErr.Trim()) "ERROR" }
   if ($res.StdOut) { Write-Log ("winget stdout: " + $res.StdOut.Trim()) "WARN" }
   return $false
@@ -514,7 +562,7 @@ function Get-ManagedUpdateCandidates($state) {
   foreach ($m in $managed) {
     if ($m.pinned -eq $true) { continue }
 
-    $res = Invoke-Winget @("upgrade", "--id", "`"$($m.wingetId)`"", "-e")
+    $res = Invoke-Winget @("upgrade", "--id", $m.wingetId, "-e")
     $out = ($res.StdOut + "`n" + $res.StdErr)
 
     if ($out -match "No applicable update found" -or $out -match "No installed package found") {
@@ -564,7 +612,7 @@ function Update-ManagedFlow($catalog, $state) {
     Write-Log "Upgrading: $id"
     $res = Invoke-Winget @(
       "upgrade",
-      "--id", "`"$id`"",
+      "--id", $id,
       "-e",
       "--silent",
       "--accept-package-agreements",
@@ -594,12 +642,67 @@ function Show-Managed($state) {
   }
 
   Write-Host ""
-  Write-Host ("{0,-38} {1,-8} {2}" -f "WingetId","Pinned","LastStatus")
-  Write-Host ("{0,-38} {1,-8} {2}" -f "-------","------","----------")
-  foreach ($m in $managed) {
-    Write-Host ("{0,-38} {1,-8} {2}" -f $m.wingetId, $m.pinned, $m.lastStatus)
+  Write-Host ("{0,-4} {1,-38} {2,-8} {3}" -f "No","WingetId","Pinned","LastStatus")
+  Write-Host ("{0,-4} {1,-38} {2,-8} {3}" -f "--","-------","------","----------")
+  for ($i=0; $i -lt $managed.Count; $i++) {
+    $m = $managed[$i]
+    Write-Host ("{0,-4} {1,-38} {2,-8} {3}" -f ($i+1), $m.wingetId, $m.pinned, $m.lastStatus)
   }
   Write-Host ""
+}
+
+function Uninstall-ManagedAppsFlow($catalog, $state) {
+  $state = Normalize-State $state
+  $catalog = As-Array $catalog
+  $managed = As-Array $state.managedApps
+
+  if ($managed.Count -eq 0) {
+    Write-Log "No managed apps to uninstall."
+    return
+  }
+
+  Write-Host ""
+  Write-Host "Managed apps:"
+  Write-Host ("{0,-4} {1,-30} {2}" -f "No","Name","WingetId")
+  Write-Host ("{0,-4} {1,-30} {2}" -f "--","----","-------")
+
+  for ($i=0; $i -lt $managed.Count; $i++) {
+    $id = $managed[$i].wingetId
+    $name = Name-ForWingetId $catalog $id
+    Write-Host ("{0,-4} {1,-30} {2}" -f ($i+1), $name, $id)
+  }
+
+  Write-Host ""
+  $selText = Read-Host "Enter numbers to uninstall (e.g. 1,3,5-7) or 0 to go back"
+  if ($selText.Trim() -eq "0") { Write-Log "Back to menu."; return }
+
+  $nums = As-Array (Parse-Selection $selText)
+  if ($nums.Count -eq 0) { Write-Log "No selection."; return }
+
+  $targets = @()
+  foreach ($n in $nums) {
+    $idx = [int]$n - 1
+    if ($idx -lt 0 -or $idx -ge $managed.Count) { Write-Log "Invalid number: $n" "WARN"; continue }
+    $targets += $managed[$idx].wingetId
+  }
+  $targets = As-Array $targets
+  if ($targets.Count -eq 0) { Write-Log "Nothing valid selected."; return }
+
+  Write-Host ""
+  Write-Host "Will uninstall:"
+  foreach ($id in $targets) {
+    Write-Host (" - " + (Name-ForWingetId $catalog $id) + " [$id]")
+  }
+  Write-Host ""
+
+  $confirm = Confirm "Uninstall $($targets.Count) app(s)?"
+  if ($null -eq $confirm) { Write-Log "Back to menu."; return }
+  if ($confirm -eq $false) { Write-Log "Cancelled by user."; return }
+
+  foreach ($id in $targets) {
+    $name = Name-ForWingetId $catalog $id
+    [void](Uninstall-WingetId $state $id $name)
+  }
 }
 
 # ----------------------------
@@ -619,9 +722,10 @@ try {
     Write-Host "1) Basics bundle (Recommended)"
     Write-Host "2) Development bundle"
     Write-Host "3) Browse Apps"
-    Write-Host "4) Update Managed Apps"
-    Write-Host "5) Show Managed Apps"
-    Write-Host "6) Exit"
+    Write-Host "4) Uninstall Managed Apps"
+    Write-Host "5) Update Managed Apps"
+    Write-Host "6) Show Managed Apps"
+    Write-Host "7) Exit"
     Write-Host ""
 
     $choice = Read-Host "Select an option"
@@ -631,9 +735,10 @@ try {
       "1" { Install-Bundle $catalog $state "Recommended Apps" $BundleBasics; Save-State $state }
       "2" { Install-Bundle $catalog $state "Development Apps" $BundleDev; Save-State $state }
       "3" { Install-From-AllApps $catalog $state; Save-State $state }
-      "4" { Update-ManagedFlow $catalog $state; Save-State $state }
-      "5" { Show-Managed $state }
-      "6" { break }
+      "4" { Uninstall-ManagedAppsFlow $catalog $state; Save-State $state }
+      "5" { Update-ManagedFlow $catalog $state; Save-State $state }
+      "6" { Show-Managed $state }
+      "7" { break }
       default { Write-Log "Invalid option: $choice" "WARN" }
     }
   }
