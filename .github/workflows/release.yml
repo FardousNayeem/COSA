@@ -1,0 +1,50 @@
+name: Build and Release COSA
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build launcher EXE
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\build_launcher.ps1
+          if (!(Test-Path ".\COSA.exe")) { throw "COSA.exe not produced." }
+
+      - name: Prepare release folder
+        shell: powershell
+        run: |
+          $out = "dist\COSA"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          New-Item -ItemType Directory -Force -Path "$out\catalog" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$out\data" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$out\logs" | Out-Null
+
+          Copy-Item ".\COSA.exe" "$out\COSA.exe" -Force
+          Copy-Item ".\cosa.ps1" "$out\cosa.ps1" -Force
+          Copy-Item ".\catalog\apps.json" "$out\catalog\apps.json" -Force
+
+      - name: Create zip
+        shell: powershell
+        run: |
+          $zip = "dist\COSA.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "dist\COSA\*" -DestinationPath $zip -Force
+          Get-Item $zip | Format-List
+
+      - name: Create GitHub Release and upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/COSA.zip
+          generate_release_notes: true
