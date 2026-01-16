@@ -38,8 +38,9 @@ function Write-Log {
 # ----------------------------
 function As-Array {
   param([Parameter(ValueFromPipeline=$true)]$Value)
-  if ($null -eq $Value) { return @() }
-  return @($Value)
+  # IMPORTANT: the leading comma makes the array non-enumerating in the pipeline
+  if ($null -eq $Value) { return ,@() }
+  return ,@($Value)
 }
 
 function Safe-Count($Value) {
@@ -313,7 +314,7 @@ function Parse-Selection {
   param([Parameter(Mandatory=$true)][string]$InputText)
 
   $text = $InputText.Trim()
-  if ([string]::IsNullOrWhiteSpace($text)) { return @() }
+  if ([string]::IsNullOrWhiteSpace($text)) { return ,@() }
 
   $set = New-Object 'System.Collections.Generic.HashSet[int]'
   $parts = $text.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
@@ -334,7 +335,7 @@ function Parse-Selection {
   }
 
   $arr = foreach ($v in $set) { [int]$v }
-  return @($arr | Sort-Object)
+  return ,@($arr | Sort-Object)
 }
 
 # ----------------------------
@@ -506,7 +507,7 @@ function Get-ManagedUpdateCandidates($state) {
   $state = Normalize-State $state
 
   $managed = As-Array $state.managedApps
-  if ($managed.Count -eq 0) { return @() }
+  if ($managed.Count -eq 0) { return ,@() }
 
   $needUpdate = @()
 
@@ -642,6 +643,16 @@ try {
 }
 catch {
   Write-Log ("Fatal error: " + $_.Exception.Message) "ERROR"
+
+  if ($_.InvocationInfo) {
+    Write-Log ("At: " + $_.InvocationInfo.ScriptName + ":" + $_.InvocationInfo.ScriptLineNumber) "ERROR"
+    Write-Log ("Line: " + ($_.InvocationInfo.Line.Trim())) "ERROR"
+  }
+
+  if ($_.ScriptStackTrace) {
+    Write-Log ("Stack: " + $_.ScriptStackTrace) "ERROR"
+  }
+
   Write-Log "See log: $LogPath" "ERROR"
   exit 1
 }
