@@ -43,6 +43,15 @@ function As-Array {
   return ,@($Value)
 }
 
+function Format-Arg([string]$s) {
+  if ($null -eq $s) { return "" }
+  if ($s -match "\s") {
+    $escaped = $s -replace '"','\"'
+    return '"' + $escaped + '"'
+  }
+  return $s
+}
+
 # ----------------------------
 # JSON Helpers
 # ----------------------------
@@ -279,12 +288,17 @@ function Require-Winget {
 # ----------------------------
 # WinGet runner + verification
 # ----------------------------
-function Invoke-Winget([string[]]$args) {
+function Invoke-Winget {
+  param([Parameter(Mandatory=$true)][string[]]$WingetArgs)
+
   Require-Winget
 
-  # Log the exact command we are about to run (helps debugging a ton)
-  $cmdLine = "winget " + ($args -join " ")
-  Write-Log "RUN: $cmdLine"
+  if ($WingetArgs.Count -eq 0) {
+    throw "Invoke-Winget called with no arguments (this would run 'winget' help and give false success)."
+  }
+
+  $pretty = ($WingetArgs | ForEach-Object { Format-Arg $_ }) -join " "
+  Write-Log ("RUN: winget " + $pretty)
 
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = "winget"
@@ -292,7 +306,8 @@ function Invoke-Winget([string[]]$args) {
   $psi.RedirectStandardError  = $true
   $psi.UseShellExecute = $false
   $psi.CreateNoWindow = $true
-  $psi.Arguments = ($args -join " ")
+  $psi.WorkingDirectory = $Root
+  $psi.Arguments = $pretty
 
   $p = New-Object System.Diagnostics.Process
   $p.StartInfo = $psi
@@ -309,10 +324,15 @@ function Invoke-Winget([string[]]$args) {
 }
 
 function Winget-List-HasId([string]$wingetId) {
-  # Prefer winget community source for verification (avoid msstore prompts)
+  # Avoid msstore prompts during verification
   $res = Invoke-Winget @("list","--id",$wingetId,"-e","--source","winget")
+  if ($res.ExitCode -ne 0) { return $false }
+
   $out = ($res.StdOut + "`n" + $res.StdErr)
-  return ($out -notmatch "No installed package found matching input criteria")
+  if ($out -match "No installed package found matching input criteria") { return $false }
+
+  # Stronger check: the ID should appear in the list output
+  return ($out -match [regex]::Escape($wingetId))
 }
 
 # ----------------------------
@@ -419,19 +439,21 @@ function Install-WingetId($state, [string]$wingetId, [string]$displayName) {
 
   if ($res.ExitCode -eq 0) {
     Write-Log "SUCCESS: $wingetId"
-    Ensure-Managed $state $wingetId
-    $idx = Get-ManagedIndexById $state $wingetId
-    if ($idx -ge 0) { (As-Array $state.managedApps)[$idx].lastStatus = "installed" }
 
-    # Verify installation
+    # Verify installation for real (not just exit code)
     if (Winget-List-HasId $wingetId) {
       Write-Log "Verified installed via winget list: $wingetId"
+      Ensure-Managed $state $wingetId
+      $idx = Get-ManagedIndexById $state $wingetId
+      if ($idx -ge 0) { (As-Array $state.managedApps)[$idx].lastStatus = "installed" }
+      return $true
     } else {
-      Write-Log "winget returned success but app not detected by winget list: $wingetId" "WARN"
-      Write-Log "It may still be installed (portable/non-registered). Check Start Menu or install folders." "WARN"
+      Write-Log "Install returned exit 0, but winget list does NOT see it: $wingetId" "WARN"
+      Write-Log "Not adding to managed list (prevents bad state). Check stderr/stdout in log." "WARN"
+      if ($res.StdErr) { Write-Log ("winget stderr: " + $res.StdErr.Trim()) "WARN" }
+      if ($res.StdOut) { Write-Log ("winget stdout: " + $res.StdOut.Trim()) "WARN" }
+      return $false
     }
-
-    return $true
   }
 
   Write-Log "FAIL: $wingetId exit=$($res.ExitCode)" "ERROR"
