@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------
 # Paths + App Info
 # ----------------------------
-$CosaVersion = "0.3.0"
+$CosaVersion = "0.3.1"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $CatalogPath = Join-Path $Root "catalog\apps.json"
@@ -314,8 +314,14 @@ function Parse-Selection {
 # Display Helpers
 # ----------------------------
 function Confirm($prompt) {
-  $ans = Read-Host "$prompt (Y/N)"
-  return ($ans.Trim().ToUpper() -eq "Y")
+  while ($true) {
+    $ans = Read-Host "$prompt (Y/N, 0=Back)"
+    $a = $ans.Trim().ToUpper()
+    if ($a -eq "Y") { return $true }
+    if ($a -eq "N") { return $false }
+    if ($a -eq "0") { return $null }
+    Write-Host "Please enter Y, N, or 0."
+  }
 }
 
 function Show-Apps($apps) {
@@ -415,10 +421,9 @@ function Install-Bundle($catalog, $state, [string]$bundleName, [string[]]$winget
   }
   Write-Host ""
 
-  if (-not (Confirm "Install bundle '$bundleName' ($($wingetIds.Count) apps)?")) {
-    Write-Log "Cancelled by user."
-    return
-  }
+  $confirm = Confirm "Install bundle '$bundleName' ($($wingetIds.Count) apps)?"
+  if ($null -eq $confirm) { Write-Log "Back to menu."; return }
+  if ($confirm -eq $false) { Write-Log "Cancelled by user."; return }
 
   foreach ($id in $wingetIds) {
     $name = Name-ForWingetId $catalog $id
@@ -431,9 +436,10 @@ function Install-Bundle($catalog, $state, [string]$bundleName, [string[]]$winget
 # ----------------------------
 function Install-From-AllApps($catalog, $state) {
   Show-Apps $catalog
-  $selText = Read-Host "Enter app IDs to install (e.g. 1,3,7-10)"
-  $ids = Parse-Selection $selText
+  $selText = Read-Host "Enter app IDs to install (e.g. 1,3,7-10) or 0 to go back"
+  if ($selText.Trim() -eq "0") { Write-Log "Back to menu."; return }
 
+  $ids = Parse-Selection $selText
   if ($ids.Count -eq 0) { Write-Log "No selection."; return }
 
   $selected = @()
@@ -450,10 +456,9 @@ function Install-From-AllApps($catalog, $state) {
   foreach ($a in $selected) { Write-Host " - $($a.id): $($a.name) [$($a.wingetId)]" }
   Write-Host ""
 
-  if (-not (Confirm "Install $($selected.Count) app(s)?")) {
-    Write-Log "Cancelled by user."
-    return
-  }
+  $confirm = Confirm "Install $($selected.Count) app(s)?"
+  if ($null -eq $confirm) { Write-Log "Back to menu."; return }
+  if ($confirm -eq $false) { Write-Log "Cancelled by user."; return }
 
   foreach ($app in $selected) { [void](Install-App $state $app) }
 }
@@ -479,7 +484,6 @@ function Get-ManagedUpdateCandidates($state) {
       continue
     }
 
-    # If winget returns non-empty and doesn't say "no update", treat as candidate
     if (-not [string]::IsNullOrWhiteSpace($out)) {
       $needUpdate += $m.wingetId
     }
@@ -512,10 +516,9 @@ function Update-ManagedFlow($catalog, $state) {
   }
   Write-Host ""
 
-  if (-not (Confirm "Update these $($candidates.Count) app(s) now?")) {
-    Write-Log "User chose not to update right now."
-    return
-  }
+  $confirm = Confirm "Update these $($candidates.Count) app(s) now?"
+  if ($null -eq $confirm) { Write-Log "Back to menu."; return }
+  if ($confirm -eq $false) { Write-Log "User chose not to update."; return }
 
   Write-Log "Updating managed apps (fetching + installing)..."
   foreach ($id in $candidates) {
@@ -571,6 +574,7 @@ try {
   while ($true) {
     Write-Host ""
     Write-Host "=== COSA (Curated Open Source Apps) v$CosaVersion ==="
+    Write-Host "0) Refresh / Home"
     Write-Host "1) Basics bundle (Recommended)"
     Write-Host "2) Development bundle"
     Write-Host "3) Install from All Apps"
@@ -582,6 +586,7 @@ try {
     $choice = Read-Host "Select an option"
 
     switch ($choice.Trim()) {
+      "0" { continue }
       "1" { Install-Bundle $catalog $state "Recommended Apps" $BundleBasics; Save-State $state }
       "2" { Install-Bundle $catalog $state "Development Apps" $BundleDev; Save-State $state }
       "3" { Install-From-AllApps $catalog $state; Save-State $state }
