@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------
 # Paths + App Info
 # ----------------------------
-$CosaVersion = "0.3.2"
+$CosaVersion = "0.3.3"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $CatalogPath = Join-Path $Root "catalog\apps.json"
