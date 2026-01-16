@@ -1,9 +1,20 @@
 [
-  { "id": 1, "name": "Mozilla Firefox", "wingetId": "Mozilla.Firefox", "category": "Browser", "recommended": true, "openSource": true },
-  { "id": 2, "name": "VLC media player", "wingetId": "VideoLAN.VLC", "category": "Media", "recommended": true, "openSource": true },
-  { "id": 3, "name": "7-Zip", "wingetId": "7zip.7zip", "category": "Utilities", "recommended": true, "openSource": true },
-  { "id": 4, "name": "Notepad++", "wingetId": "Notepad++.Notepad++", "category": "Utilities", "recommended": false, "openSource": true },
-  { "id": 5, "name": "GIMP", "wingetId": "GIMP.GIMP", "category": "Graphics", "recommended": false, "openSource": true },
-  { "id": 6, "name": "Blender", "wingetId": "BlenderFoundation.Blender", "category": "Graphics", "recommended": false, "openSource": true },
-  { "id": 7, "name": "KeePassXC", "wingetId": "KeePassXCTeam.KeePassXC", "category": "Security", "recommended": true, "openSource": true }
+  { "id": 1,  "name": "Mozilla Firefox",          "wingetId": "Mozilla.Firefox",                    "category": "Browser",    "recommended": false, "openSource": true },
+
+  { "id": 2,  "name": "PeaZip",                  "wingetId": "PeaZip.PeaZip",                      "category": "Utilities",  "recommended": true,  "openSource": true },
+  { "id": 3,  "name": "VLC media player",        "wingetId": "VideoLAN.VLC",                       "category": "Media",      "recommended": true,  "openSource": true },
+  { "id": 4,  "name": "Notepad++",               "wingetId": "Notepad++.Notepad++",                "category": "Utilities",  "recommended": true,  "openSource": true },
+  { "id": 5,  "name": "ImageGlass",              "wingetId": "DuongDieuPhap.ImageGlass",          "category": "Graphics",   "recommended": true,  "openSource": true },
+  { "id": 6,  "name": "GIMP",                    "wingetId": "GIMP.GIMP",                          "category": "Graphics",   "recommended": true,  "openSource": true },
+  { "id": 7,  "name": "LibreOffice",             "wingetId": "TheDocumentFoundation.LibreOffice", "category": "Office",     "recommended": true,  "openSource": true },
+  { "id": 8,  "name": "Okular",                  "wingetId": "KDE.Okular",                         "category": "Utilities",  "recommended": true,  "openSource": true },
+  { "id": 9,  "name": "qBittorrent",             "wingetId": "qBittorrent.qBittorrent",           "category": "Network",    "recommended": true,  "openSource": true },
+
+  { "id": 10, "name": "VSCodium",                "wingetId": "VSCodium.VSCodium",                 "category": "Development","recommended": false, "openSource": true },
+  { "id": 11, "name": "GitHub Desktop",          "wingetId": "GitHub.GitHubDesktop",              "category": "Development","recommended": false, "openSource": true },
+  { "id": 12, "name": "Python 3",                "wingetId": "Python.Python.3",                    "category": "Development","recommended": false, "openSource": true },
+  { "id": 13, "name": "Temurin JDK 17",           "wingetId": "EclipseAdoptium.Temurin.17.JDK",    "category": "Development","recommended": false, "openSource": true },
+  { "id": 14, "name": "Node.js (LTS)",           "wingetId": "OpenJS.NodeJS",                      "category": "Development","recommended": false, "openSource": true },
+  { "id": 15, "name": "Git",                     "wingetId": "Git.Git",                            "category": "Development","recommended": false, "openSource": true }
+
 ]
